@@ -14499,6 +14499,70 @@ def merge_adjacent_tool_calls(messages):
     return out, True
 
 
+def reorder_early_tool_results(messages):
+    """Move tool results that precede their call behind the assistant batch.
+
+    Clients that replay a Responses history can hand the gateway a
+    ``role:"tool"`` result before the assistant message that declared the
+    matching ``tool_call``. The upstream pairs each call with the results that
+    follow it, so the history reads as "call without result, result without
+    call" and the whole request is rejected with 400 / code 11148 even though
+    every id is present.
+
+    Call ids are unique inside one request, so moving the result behind its
+    declaration is lossless: no text changes, only order. Orphan results and
+    calls are left for cleanup_orphan_tool_calls().
+    """
+    if not isinstance(messages, list) or len(messages) < 2:
+        return messages, False
+    call_pos = {}
+    for idx, msg in enumerate(messages):
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        calls = msg.get("tool_calls")
+        if not isinstance(calls, list):
+            continue
+        for call in calls:
+            if isinstance(call, dict):
+                call_id = call.get("id")
+                if isinstance(call_id, str) and call_id:
+                    call_pos.setdefault(call_id, idx)
+    early = []
+    for idx, msg in enumerate(messages):
+        if not isinstance(msg, dict) or msg.get("role") != "tool":
+            continue
+        call_id = msg.get("tool_call_id")
+        if not isinstance(call_id, str) or not call_id:
+            continue
+        declared = call_pos.get(call_id)
+        if declared is not None and declared > idx:
+            early.append((idx, msg))
+    if not early:
+        return messages, False
+    moving = set(idx for idx, _ in early)
+    out = [msg for idx, msg in enumerate(messages) if idx not in moving]
+    for _, msg in early:
+        call_id = msg.get("tool_call_id")
+        for at, cand in enumerate(out):
+            if not isinstance(cand, dict) or cand.get("role") != "assistant":
+                continue
+            calls = cand.get("tool_calls")
+            if not isinstance(calls, list):
+                continue
+            if not any(isinstance(c, dict) and c.get("id") == call_id for c in calls):
+                continue
+            end = at + 1
+            while (end < len(out) and isinstance(out[end], dict)
+                   and out[end].get("role") == "tool"):
+                end += 1
+            out.insert(end, msg)
+            break
+        else:
+            # The declaration vanished while rebuilding; leave history untouched.
+            return messages, False
+    return out, True
+
+
 def repack_tool_result_blocks(messages):
     """Keep a tool_calls batch and its results adjacent.
 
@@ -16162,6 +16226,7 @@ def build_upstream_body(payload):
     # reject every later turn of that conversation. Order matters: merge the
     # split declarations first, so repack sees one complete batch.
     repaired, _merged = merge_adjacent_tool_calls(body["messages"])
+    repaired, _early = reorder_early_tool_results(repaired)
     repaired, _repacked = repack_tool_result_blocks(repaired)
     repaired, _cleaned = cleanup_orphan_tool_calls(repaired)
     # Last shape check: an empty text part is a hard 400 (11151) whichever side
