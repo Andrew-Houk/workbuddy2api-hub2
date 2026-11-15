@@ -288,8 +288,13 @@ check("a trailing plain assistant folds into the content-less call message",
 not_empty = [assistant_with_calls("c0"),
              {"role": "assistant", "content": "kept",
               "tool_calls": assistant_with_calls("c1")["tool_calls"]}]
-_, changed12 = P.merge_adjacent_tool_calls(copy.deepcopy(not_empty))
-check("a trailing batch with real content is not merged", not changed12)
+merged_c, changed12 = P.merge_adjacent_tool_calls(copy.deepcopy(not_empty))
+check("a trailing batch with real content is merged too", changed12)
+check("both calls survive the merge",
+      [tc["id"] for tc in merged_c[0]["tool_calls"]] == ["c0", "c1"],
+      merged_c[0].get("tool_calls"))
+check("the trailing text is carried, not dropped",
+      merged_c[0].get("content") == "kept", merged_c[0].get("content"))
 
 separated = [assistant_with_calls("c0"),
              {"role": "user", "content": "hi"},

@@ -14442,6 +14442,31 @@ def _merge_reasoning_content(dst, src):
         dst["reasoning_content"] = rc
 
 
+def _merge_assistant_content(prev_content, next_content):
+    """Combine two assistant contents; None means "nothing to carry over".
+
+    The upstream accepts either a string or a parts list, so folding a
+    text-carrying assistant into a tool_calls assistant has to rebuild the same
+    shape: empty values disappear, and a str + list mix becomes a parts list.
+    """
+    def _empty(value):
+        return value is None or value == "" or value == []
+
+    if _empty(next_content):
+        return None
+    if _empty(prev_content):
+        return next_content
+    if isinstance(prev_content, str) and isinstance(next_content, str):
+        return prev_content + "\n" + next_content
+    if isinstance(prev_content, list) and isinstance(next_content, list):
+        return list(prev_content) + list(next_content)
+    if isinstance(prev_content, str):
+        return [{"type": "text", "text": prev_content}] + list(next_content)
+    if isinstance(next_content, str):
+        return list(prev_content) + [{"type": "text", "text": next_content}]
+    return None
+
+
 def merge_adjacent_tool_calls(messages):
     """Merge back-to-back assistant tool_calls messages into one.
 
@@ -14475,11 +14500,19 @@ def merge_adjacent_tool_calls(messages):
             if prev is not None and prev.get("role") == "assistant":
                 tcs = m.get("tool_calls")
                 prev_calls = prev.get("tool_calls")
-                # Form 1: this message declares tool calls and has no content.
+                # Form 1: this message declares tool calls. Content is allowed:
+                # a Codex replay can split one parallel batch into a reasoning
+                # part and a commentary part, and the unmerged shape makes the
+                # first batch's results follow the second declaration, which the
+                # upstream rejects with 400 / code 11148. The text is carried
+                # into the merged message instead of being dropped.
                 if (isinstance(tcs, list) and tcs
-                        and _empty_content(m.get("content"))
                         and isinstance(prev_calls, list) and prev_calls):
+                    merged_content = _merge_assistant_content(
+                        prev.get("content"), m.get("content"))
                     prev["tool_calls"] = prev_calls + tcs
+                    if merged_content is not None:
+                        prev["content"] = merged_content
                     _merge_reasoning_content(prev, m)
                     changed = True
                     continue
