@@ -2971,6 +2971,21 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     ' 次，首轮等待 ': ' tries, first wait ',
     '已启用：每': 'On: every',
     '已启用：由网关代跑 web_search / web_fetch': 'On: the gateway runs web_search / web_fetch for the client',
+    '搜索执行方式': 'Search execution',
+    '由模型决定（多轮，原生）': 'Model decides (multi-round, native)',
+    '网关预检索（一次性）': 'Gateway pre-search (single shot)',
+    '网页工具网关': 'Web tool gateway',
+    '启用网页工具网关': 'Enable the web tool gateway',
+    '协议内注入': 'Protocol injection',
+    '搜索后端': 'Search providers',
+    '抓取后端': 'Fetch providers',
+    '元宝账号池': 'Yuanbao account pool',
+    '本地引擎': 'Local engines',
+    '本机 HTTP': 'Local HTTP',
+    '全池随机轮换': 'Rotate the whole pool',
+    '仅国内版': 'China realm only',
+    '仅国际版': 'International realm only',
+    '网页工具网关已保存': 'Web tool gateway saved',
     '已启用：账号单模型当日超过': 'On: once an account, for a single model, exceeds today',
     '已启用：账号当日超过': 'On: once an account exceeds today',
     '已复制': 'Copied',
@@ -4278,6 +4293,21 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "已启用：每": "已啟用：每",
     "已启用：每 ": "已啟用：每 ",
     "已启用：由网关代跑 web_search / web_fetch": "已啟用：由閘道代跑 web_search / web_fetch",
+    "搜索执行方式": "搜尋執行方式",
+    "由模型决定（多轮，原生）": "由模型決定（多輪，原生）",
+    "网关预检索（一次性）": "閘道預先搜尋（一次性）",
+    "网页工具网关": "網頁工具閘道",
+    "启用网页工具网关": "啟用網頁工具閘道",
+    "协议内注入": "協定內注入",
+    "搜索后端": "搜尋後端",
+    "抓取后端": "抓取後端",
+    "元宝账号池": "元寶帳號池",
+    "本地引擎": "本機引擎",
+    "本机 HTTP": "本機 HTTP",
+    "全池随机轮换": "全池隨機輪換",
+    "仅国内版": "僅國內版",
+    "仅国际版": "僅國際版",
+    "网页工具网关已保存": "網頁工具閘道已保存",
     "已启用：账号单模型当日超过": "已啟用：帳號單模型當日超過",
     "已启用：账号当日超过": "已啟用：帳號當日超過",
     "已复制": "已複製",
@@ -7710,6 +7740,87 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
               由网关代跑
             </label>
             <button onclick="saveLocalWebTools(this)">保存</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-cat="models">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <div>
+            <h2 style="margin:0">网页工具网关 <em id="setWebGatewayState"></em></h2>
+            <div style="font-size:12px;color:var(--dim);margin-top:4px">
+              三个能力端点：搜索、抓取、搜索+抓取；同时把搜索与抓取作为模型暴露（wb-search / wb-fetch / wb-search-fetch）。
+              搜索后端可在「WorkBuddy 元宝」与「本地引擎」之间多选，抓取后端同理；元宝走账号池，可指定全池轮换或只用一个区域。
+              默认关闭，关闭时行为与之前完全一致。
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input id="setWebGateway" type="checkbox" style="width:16px;height:16px" onchange="saveWebGateway()">
+            启用网页工具网关
+          </label>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="color:var(--dim)">协议内注入</span>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setInjectAnthropic" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              Anthropic Messages
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setInjectResponses" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              OpenAI Responses
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setInjectGemini" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              Gemini
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="color:var(--dim)">搜索执行方式</span>
+            <select id="setWebSearchMode" onchange="saveWebGateway()" style="min-width:220px">
+              <option value="multi">由模型决定（多轮，原生）</option>
+              <option value="pre">网关预检索（一次性）</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="color:var(--dim)">搜索后端</span>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setSearchWorkbuddy" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              WorkBuddy 元宝
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setSearchLocal" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              本地引擎
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <span style="color:var(--dim)">抓取后端</span>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setFetchWorkbuddy" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              WorkBuddy
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input id="setFetchLocal" type="checkbox" style="width:15px;height:15px" onchange="saveWebGateway()">
+              本机 HTTP
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span style="color:var(--dim)">元宝账号池</span>
+            <select id="setWorkbuddyRealm" onchange="saveWebGateway()" style="min-width:180px">
+              <option value="all">全池随机轮换</option>
+              <option value="cn">仅国内版</option>
+              <option value="intl">仅国际版</option>
+            </select>
+            <span style="color:var(--dim);font-size:12px">国内版 copilot.tencent.com · 国际版 www.workbuddy.ai</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span style="color:var(--dim)">指定账号</span>
+              <a href="#" onclick="toggleAllWebAccounts(true);return false" style="font-size:12px">全选</a>
+              <a href="#" onclick="toggleAllWebAccounts(false);return false" style="font-size:12px">全不选</a>
+              <span style="color:var(--dim);font-size:12px">全部勾选 = 不限（走整个池）</span>
+            </div>
+            <div id="wbAccountList" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:12px;color:var(--dim)">加载账号…</div>
           </div>
         </div>
       </section>
@@ -17294,6 +17405,40 @@ async function loadSettings(showToast, opts){
         localWebState.textContent = localWeb ? '(已启用)' : '(直通)';
         localWebState.style.color = localWeb ? 'var(--accent2)' : 'var(--dim)';
       }
+      const gateway = (data.web_gateway && typeof data.web_gateway === 'object') ? data.web_gateway : {};
+      window.__wbGateway = gateway;
+      const gwState = document.getElementById('setWebGatewayState');
+      if(gwState){
+        gwState.textContent = gateway.enabled ? '(已启用)' : '(关闭)';
+        gwState.style.color = gateway.enabled ? 'var(--accent2)' : 'var(--dim)';
+      }
+      const gwBox = document.getElementById('setWebGateway');
+      if(gwBox) gwBox.checked = gateway.enabled === true;
+      const gwProtocols = Array.isArray(gateway.inject_protocols) ? gateway.inject_protocols : [];
+      const gwAnth = document.getElementById('setInjectAnthropic');
+      if(gwAnth) gwAnth.checked = gwProtocols.indexOf('anthropic') >= 0;
+      const gwResp = document.getElementById('setInjectResponses');
+      if(gwResp) gwResp.checked = gwProtocols.indexOf('responses') >= 0;
+      const gwGemini = document.getElementById('setInjectGemini');
+      if(gwGemini) gwGemini.checked = gwProtocols.indexOf('gemini') >= 0;
+      const gwMode = document.getElementById('setWebSearchMode');
+      if(gwMode) gwMode.value = gateway.web_search_mode || 'multi';
+      const gwPick = (list, name) => (Array.isArray(list) ? list : []).filter(x => x && x.name === name)[0] || {};
+      const gwSearchWb = gwPick(gateway.search_providers, 'workbuddy');
+      const gwSearchLocal = gwPick(gateway.search_providers, 'local-engines');
+      const gwFetchWb = gwPick(gateway.fetch_providers, 'workbuddy');
+      const gwFetchLocal = gwPick(gateway.fetch_providers, 'local-http');
+      const gwSearchWbBox = document.getElementById('setSearchWorkbuddy');
+      if(gwSearchWbBox) gwSearchWbBox.checked = !!gwSearchWb.enabled;
+      const gwSearchLocalBox = document.getElementById('setSearchLocal');
+      if(gwSearchLocalBox) gwSearchLocalBox.checked = !!gwSearchLocal.enabled;
+      const gwFetchWbBox = document.getElementById('setFetchWorkbuddy');
+      if(gwFetchWbBox) gwFetchWbBox.checked = !!gwFetchWb.enabled;
+      const gwFetchLocalBox = document.getElementById('setFetchLocal');
+      if(gwFetchLocalBox) gwFetchLocalBox.checked = !!gwFetchLocal.enabled;
+      const gwRealm = document.getElementById('setWorkbuddyRealm');
+      if(gwRealm) gwRealm.value = gwSearchWb.realm || 'all';
+      loadWebGatewayAccounts(gwSearchWb.allowed_uids);
       const remainingPriority = data.remaining_priority_enabled === true;
       const remainingPriorityInput = document.getElementById('setRemainingPriority');
       if(remainingPriorityInput) remainingPriorityInput.checked = remainingPriority;
@@ -18544,6 +18689,101 @@ async function saveLocalWebTools(btn){
     toast('保存失败: ' + e.message, 'bad');
   } finally {
     if(btn) btn.disabled = false;
+  }
+}
+
+async function loadWebGatewayAccounts(selected){
+  const box = document.getElementById('wbAccountList');
+  if(!box) return;
+  try {
+    const data = await getJSON('/accounts?realm=all');
+    const rows = (data && data.accounts) || [];
+    box.innerHTML = '';
+    if(!rows.length){ box.textContent = '尚无账号'; return; }
+    const allow = Array.isArray(selected) ? selected : null;
+    rows.forEach(function(a){
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.uid = a.uid || '';
+      cb.checked = allow ? allow.indexOf(a.uid) >= 0 : true;
+      cb.style.cssText = 'width:14px;height:14px';
+      const realm = a.realm === 'cn' ? '国内' : '国际';
+      const state = a.tokenExpired ? ' · token 过期' : (a.enabled ? '' : ' · 已停用');
+      const text = document.createElement('span');
+      text.textContent = (a.nickname || a.uid || '?') + ' · ' + realm + state;
+      label.appendChild(cb);
+      label.appendChild(text);
+      box.appendChild(label);
+    });
+  } catch(e) {
+    box.textContent = '账号加载失败: ' + e.message;
+  }
+}
+
+function toggleAllWebAccounts(on){
+  document.querySelectorAll('#wbAccountList input[type=checkbox]').forEach(function(cb){
+    cb.checked = !!on;
+  });
+}
+
+function selectedWebAccounts(){
+  const boxes = Array.prototype.slice.call(
+    document.querySelectorAll('#wbAccountList input[type=checkbox]'));
+  if(!boxes.length) return null;
+  const uids = boxes.filter(function(cb){ return cb.checked; })
+                    .map(function(cb){ return cb.dataset.uid; })
+                    .filter(Boolean);
+  if(uids.length === boxes.length) return null;
+  return uids;
+}
+
+async function saveWebGateway(){
+  const on = id => { const el = document.getElementById(id); return !!(el && el.checked); };
+  const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const prev = (window.__wbGateway && typeof window.__wbGateway === 'object') ? window.__wbGateway : {};
+  const prevPick = (list, name) => (Array.isArray(list) ? list : []).filter(x => x && x.name === name)[0] || {};
+  const pickedAccounts = selectedWebAccounts();
+  const accountBoxes = document.querySelectorAll('#wbAccountList input[type=checkbox]');
+  if(accountBoxes.length && Array.isArray(pickedAccounts) && pickedAccounts.length === 0){
+    toast('指定账号至少选一个，或全部勾选表示不限', 'bad');
+    return;
+  }
+  const payload = {
+    enabled: on('setWebGateway'),
+    web_search_mode: val('setWebSearchMode') || 'multi',
+    inject_in_protocols: on('setInjectAnthropic') || on('setInjectResponses')
+      || on('setInjectGemini'),
+    inject_protocols: []
+      .concat(on('setInjectAnthropic') ? ['anthropic'] : [])
+      .concat(on('setInjectResponses') ? ['responses'] : [])
+      .concat(on('setInjectGemini') ? ['gemini'] : []),
+    search_providers: [
+      Object.assign({}, prevPick(prev.search_providers, 'workbuddy'), {
+        name: 'workbuddy', enabled: on('setSearchWorkbuddy'),
+        priority: 10, fallback: true, realm: val('setWorkbuddyRealm') || 'all',
+        allowed_uids: pickedAccounts
+      }),
+      Object.assign({}, prevPick(prev.search_providers, 'local-engines'), {
+        name: 'local-engines', enabled: on('setSearchLocal'), priority: 20, fallback: true
+      })
+    ],
+    fetch_providers: [
+      Object.assign({}, prevPick(prev.fetch_providers, 'workbuddy'), {
+        name: 'workbuddy', enabled: on('setFetchWorkbuddy'), priority: 10, fallback: true
+      }),
+      Object.assign({}, prevPick(prev.fetch_providers, 'local-http'), {
+        name: 'local-http', enabled: on('setFetchLocal'), priority: 20, fallback: true
+      })
+    ]
+  };
+  try {
+    await postJSON('/settings/save', {web_gateway: payload});
+    toast('网页工具网关已保存', 'ok');
+    loadSettings();
+  } catch(e) {
+    toast('保存失败: ' + e.message, 'bad');
   }
 }
 
