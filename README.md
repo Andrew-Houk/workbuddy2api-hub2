@@ -242,6 +242,9 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 | 视频状态 | `GET` | `/v1/videos/<id>` | 轮询视频生成进度与结果 |
 | 产物下载 | `GET` | `/v1/videos/<id>/content` | 下载视频 MP4 产物直链 |
 | 健康检查 | `GET` | `/health` | 网关运行状态、可用账号数与就绪模型分布 |
+| 创建账号授权请求 | `POST` | `/v1/accounts/authorize` | 按 `realm=cn` 或 `intl` 生成一次性浏览器授权链接 |
+| 查询授权状态 | `GET` | `/v1/accounts/authorize/<request_id>` | 查询浏览器登录结果；成功后账号自动写入账号列表 |
+| 读取账号列表 | `GET` | `/v1/accounts?realm=cn\|intl` | 返回指定版本的脱敏账号列表 |
 
 ---
 
@@ -252,7 +255,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 306 个套件：229 个 Python + 77 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 309 个套件：231 个 Python + 78 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - `tests/_visual_recent.py` 是同一类手动检查器：用合成 fixture 起一份 1480 宽的「请求列表」，验证失败徽章点开的详情弹窗、四个过滤下拉真的把参数发到 `/usage/recent`，并把列表 / 弹窗 / 筛选条截图写到系统临时目录的 `wb-visual-recent/`。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
@@ -265,6 +268,8 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 ### Unreleased
 
 - **修复「工具结果早于工具调用」导致的 11148**：Codex / ccswitch 经 `/v1/responses` 重放历史时，个别会话把 `function_call_output` 排在 `function_call` 之前；转成 chat 消息后就是 `[tool, assistant(tool_calls)]`，上游按顺序配对，读成「调用没有结果、结果没有调用」，整轮返回 400 / code 11148，会话作废。新的 `reorder_early_tool_results()` 在出站前把这类结果移到对应 call 之后；`merge_adjacent_tool_calls()` 同时放宽为允许带文本的相邻批次合并（文本与 reasoning 一并保留）（只改顺序，id 唯一所以无损），接在 `merge_adjacent_tool_calls` 之后、`repack_tool_result_blocks` 之前；孤儿调用 / 孤儿结果仍由原逻辑清理。 / Fix 11148 when a tool result arrives before its call: some Codex histories replayed through `/v1/responses` list `function_call_output` before `function_call`, leaving the chat body as `[tool, assistant(tool_calls)]`; the upstream pairs by order and rejects the turn with 400 / code 11148. A new `reorder_early_tool_results()` moves such results behind their call before the body leaves (order only, ids are unique so nothing is lost), between `merge_adjacent_tool_calls` and `repack_tool_result_blocks`; orphan calls and results keep the existing cleanup.
+- **重启后立即刷新一次积分**（#1）：积分刷新器首轮只等待 20 秒，之后恢复配置间隔，避免重启后最长 30 分钟一直显示旧快照与本地估算。 / Refresh credits shortly after startup, then resume the configured interval.
+- **外部账号接口与接口管理**（#8）：新增独立外部 API Key、`account:auth` / `account:read` scope、浏览器授权链接与脱敏账号列表；新增「接口」页面、调用记录分页和动态请求示例。密钥与网关 Key 隔离，密钥文件权限为 `0600`，删除后不能通过旧页面快照恢复，外部接口不返回内部异常。 / Add scoped external account APIs and a panel for key management, call records and API examples.
 
 ### v2.1.3
 
