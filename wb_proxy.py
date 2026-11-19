@@ -7120,7 +7120,26 @@ def _bind_pools():
     else:
         TEXTS = wb_pool_text.TextPool(POOL, log=log)
         MEDIAS = wb_pool_media.MediaPool(POOL, log=log)
+    _install_web_gateway()
     return TEXTS, MEDIAS
+
+
+def _install_web_gateway():
+    """把账号池交给 web 网关。
+
+    子包不 import wb_proxy（会循环，且 ``POOL`` 在 main 里才赋值），
+    所以注入是唯一方向；POOL 被替换时这里会重新构造一个 registry。
+    """
+    try:
+        import wb_webgateway
+
+        wb_webgateway.install(wb_webgateway.build_registry(
+            pool=POOL, accounts_dir=ACCOUNTS_DIR, log=log))
+    except Exception as exc:
+        try:
+            log("web gateway init failed: %s" % exc, level="WARN", tag="webgateway")
+        except Exception:
+            pass
 
 
 def _pool_representative(realm=None, scope=None):
@@ -12175,6 +12194,7 @@ def runtime_settings_view():
         "daily_chat_web_fallback_activity":
             wb_settings.daily_chat_web_fallback_activity(ACCOUNTS_DIR),
         "local_web_tools": wb_settings.local_web_tools(ACCOUNTS_DIR),
+        "web_gateway": wb_settings.web_gateway(ACCOUNTS_DIR),
         "remaining_priority_enabled":
             wb_settings.remaining_priority_enabled(ACCOUNTS_DIR),
         "egress_backoff_enabled":
@@ -19909,7 +19929,9 @@ def follow_up_with_tool_results(internal_calls, holder, model, session_key, t_st
 
     for tc in tool_calls:
         nm = tc["function"]["name"]
-        result = wb_webtools.execute(nm, tc["function"]["arguments"])
+        result = _execute_web_tool(nm, tc["function"]["arguments"], {
+            "allowed_accounts": allowed_accounts,
+        })
         found = wb_webtools.sources_from_result(result)
         if found:
             holder.setdefault("web_sources", []).extend(found)
@@ -20946,8 +20968,76 @@ def _anthropic_estimate_chat_tokens(chat):
     return sum(estimate_tokens(value) for value in values if value)
 
 
-def stream_messages_events(raw_iter, model, holder=None):
-    """Yield Anthropic Messages SSE frames from a chat-completions SSE stream."""
+def _parse_gemini_path(path):
+    """``/v1beta/models/{model}:{action}`` → (model, action)。"""
+    prefix = "/v1beta/models/"
+    if not isinstance(path, str) or not path.startswith(prefix):
+        return "", ""
+    rest = path[len(prefix):]
+    model, _, action = rest.partition(":")
+    return model.strip(), action.strip()
+
+
+def _web_blocks_from_call(call, result):
+    """一次工具执行 → server_tool_use + web_search_tool_result 两个原生块。"""
+    try:
+        args = json.loads(call.get("arguments") or "{}")
+    except Exception:
+        args = {}
+    if not isinstance(args, dict):
+        args = {}
+    tool_id = "srvtoolu_%s" % uuid.uuid4().hex[:24]
+    use = {
+        "type": "server_tool_use",
+        "id": tool_id,
+        "name": call.get("name") or "web_search",
+        "input": args,
+    }
+    rows = wb_webtools.sources_from_result(result)
+    content = [{"type": "web_search_result", "title": row.get("title") or "",
+                "url": row.get("url") or ""} for row in rows]
+    result_block = {"type": "web_search_tool_result", "tool_use_id": tool_id,
+                    "content": content}
+    return [use, result_block]
+
+
+def _execute_web_tool(name, arguments, ctx=None):
+    """优先走 web 网关的 registry；未接管时回退到 wb_webtools 的本地执行器。
+
+    识别与接管条件都在 wb_webgateway.execute_tool 里判断（含旧开关
+    ``local_web_tools``），这里只负责回退，保证未启用时行为与 v2.1.3 一致。
+    """
+    try:
+        import wb_webgateway
+
+        handled = wb_webgateway.execute_tool(name, arguments, ctx)
+        if handled is not None:
+            return handled
+    except Exception as exc:
+        try:
+            log("web gateway: execute_tool failed: %s" % exc, level="WARN",
+                tag="webgateway")
+        except Exception:
+            pass
+    return wb_webtools.execute(name, arguments)
+
+
+def _web_meta_frames(meta):
+    """预检索的两个原生块（server_tool_use / web_search_tool_result）。"""
+    try:
+        import wb_webgateway.protocols.anthropic as web_anthropic
+
+        return web_anthropic.stream_prefix_frames(meta, anthropic_sse_frame)
+    except Exception:
+        return []
+
+
+def stream_messages_events(raw_iter, model, holder=None, web_meta=None):
+    """Yield Anthropic Messages SSE frames from a chat-completions SSE stream.
+
+    ``web_meta`` 非空时，在 message_start 之后先补出 server_tool_use 与
+    web_search_tool_result 两个块，并把后续块的起始索引推到 2。
+    """
     holder = holder if isinstance(holder, dict) else {}
     state = {
         "started": False,
@@ -20960,7 +21050,7 @@ def stream_messages_events(raw_iter, model, holder=None):
         "thinking_idx": None,
         "text_open": False,
         "text_idx": None,
-        "next": 0,
+        "next": 2 if web_meta else 0,
         "tools": {},
         "tool_order": [],
         "usage": None,
@@ -20971,14 +21061,14 @@ def stream_messages_events(raw_iter, model, holder=None):
 
     def ensure_start(chunk=None):
         if state["started"]:
-            return None
+            return []
         state["started"] = True
         if isinstance(chunk, dict):
             state["id"] = _anthropic_text(chunk.get("id"))
             # `model` is the client-facing id. Do not let the outbound intl
             # alias (-sg) leak into the Anthropic response.
             state["model"] = model
-        return anthropic_sse_frame("message_start", {
+        frames = [anthropic_sse_frame("message_start", {
             "message": {
                 "id": _anthropic_message_id(state["id"]),
                 "type": "message",
@@ -20989,7 +21079,10 @@ def stream_messages_events(raw_iter, model, holder=None):
                 "stop_sequence": None,
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
-        })
+        })]
+        if web_meta:
+            frames.extend(_web_meta_frames(web_meta))
+        return frames
 
     def ensure_thinking():
         frames = []
@@ -21041,9 +21134,8 @@ def stream_messages_events(raw_iter, model, holder=None):
                 }
             })
             return
-        start = ensure_start(chunk)
-        if start:
-            yield start
+        for frame in ensure_start(chunk):
+            yield frame
         # Capture usage before the choices guard: the final upstream frame
         # carries both the usage block and the finish_reason (and no delta),
         # so skipping it here would zero out every streaming usage row.
@@ -21122,9 +21214,8 @@ def stream_messages_events(raw_iter, model, holder=None):
     if state["failed"]:
         return
     if not state["started"]:
-        start = ensure_start(None)
-        if start:
-            yield start
+        for frame in ensure_start(None):
+            yield frame
     if state["thinking_open"]:
         state["thinking_open"] = False
         yield anthropic_sse_frame("content_block_stop", {"index": state["thinking_idx"]})
@@ -22954,6 +23045,303 @@ class Handler(BaseHTTPRequestHandler):
         # macOS / 容器走同一条路，不存在「当前环境开不了窗口」的伪状态（#427）。
         return self._json(200, {"supported": True, "mode": "web", "visible": False})
 
+    def _messages_web_loop(self, chat_req, session_key, req_realm, explicit_realm,
+                           model, want_stream, fp, t_start, web_meta):
+        """Anthropic server tool 的多轮执行。
+
+        模型自己决定搜什么：网关把声明换成同名 function，上游产出 tool call
+        后本地执行、把结果喂回，再请求一轮，直到模型不再调用或达到 max_uses。
+        最后把每一轮的调用与结果编回 server_tool_use / web_search_tool_result
+        两个原生块，客户端看到的就是官方形状。
+        """
+        convo = list(chat_req.get("messages") or [])
+        try:
+            max_uses = int(web_meta.get("max_uses") or 5)
+        except (TypeError, ValueError):
+            max_uses = 5
+        max_uses = max(1, min(10, max_uses))
+        blocks = []
+        chat_obj = None
+        account = None
+        effort = None
+        rounds = 0
+        for round_number in range(max_uses):
+            body = dict(chat_req)
+            body["messages"] = convo
+            body["stream"] = False
+            if round_number == max_uses - 1:
+                kept = [t for t in body.get("tools") or []
+                        if not wb_webtools.is_internal_tool(tool_name_of(t))]
+                if kept:
+                    body["tools"] = kept
+                else:
+                    body.pop("tools", None)
+            upstream, account, effort = open_upstream_with_fallback(
+                body, session_key=session_key, target_realm=req_realm,
+                allow_realm_fallback=not explicit_realm,
+                **key_open_kwargs(getattr(self, "key_entry", None)))
+            with upstream:
+                chat_obj = aggregate_stream(upstream, model, None)
+            calls = internal_calls_from_chat(chat_obj, web_tools=True)
+            if not calls:
+                break
+            message = (((chat_obj.get("choices") or [{}])[0]) or {}).get("message") or {}
+            tool_calls = []
+            tool_messages = []
+            for index, call in enumerate(calls):
+                call_id = "call_web_%d_%d_%d" % (int(t_start * 1000) % 1000000,
+                                                 round_number, index)
+                tool_calls.append({
+                    "id": call_id, "type": "function",
+                    "function": {"name": call.get("name"),
+                                 "arguments": call.get("arguments") or "{}"},
+                })
+                outcome = _execute_web_tool(
+                    call.get("name"), call.get("arguments"),
+                    {"key_entry": getattr(self, "key_entry", None),
+                     "key_id": self._key_id(),
+                     "allowed_accounts": self._key_allowed_accounts()})
+                tool_messages.append({"role": "tool", "tool_call_id": call_id,
+                                      "name": call.get("name"), "content": outcome})
+                blocks.extend(_web_blocks_from_call(call, outcome))
+            convo = convo + [{"role": "assistant",
+                              "content": message.get("content"),
+                              "tool_calls": tool_calls}] + tool_messages
+            rounds += 1
+
+        if chat_obj is None:
+            return self._anthropic_error(502, "no upstream response", "api_error")
+        result = chat_to_messages(chat_obj)
+        if blocks:
+            content = result.get("content")
+            result["content"] = blocks + (list(content) if isinstance(content, list) else [])
+            usage = result.get("usage")
+            if not isinstance(usage, dict):
+                usage = {}
+                result["usage"] = usage
+            tool_uses = sum(1 for block in blocks
+                            if block.get("type") == "server_tool_use")
+            usage["server_tool_use"] = {"web_search_requests": max(1, tool_uses)}
+        wall = int((time.time() - t_start) * 1000)
+        try:
+            record_upstream_usage(None, model, chat_obj.get("usage"), stream=False,
+                                  elapsed_ms=wall, fp=fp,
+                                  account=account.uid if account else None,
+                                  realm=req_realm, key=self._key_id(), effort=effort)
+        except Exception:
+            pass
+        if not want_stream:
+            return self._json(200, result)
+        return self._send_anthropic_result_sse(result)
+
+    def _send_anthropic_result_sse(self, result):
+        """把已经完整的 Anthropic 消息编成 SSE，一次发完再关连接。"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        if cors_origin_allowed(self.path):
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        usage = result.get("usage") or {}
+        frames = [anthropic_sse_frame("message_start", {
+            "message": {
+                "id": result.get("id") or _new_id("msg_"),
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": result.get("model"),
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": usage.get("input_tokens") or 0,
+                          "output_tokens": 0},
+            }
+        })]
+        for index, block in enumerate(result.get("content") or []):
+            kind = str(block.get("type") or "")
+            if kind == "server_tool_use":
+                frames.append(anthropic_sse_frame("content_block_start", {
+                    "index": index,
+                    "content_block": {"type": "server_tool_use", "id": block.get("id"),
+                                      "name": block.get("name"), "input": {}},
+                }))
+                frames.append(anthropic_sse_frame("content_block_delta", {
+                    "index": index,
+                    "delta": {"type": "input_json_delta",
+                              "partial_json": json.dumps(block.get("input") or {},
+                                                         ensure_ascii=False)},
+                }))
+            elif kind == "text":
+                frames.append(anthropic_sse_frame("content_block_start", {
+                    "index": index, "content_block": {"type": "text", "text": ""},
+                }))
+                frames.append(anthropic_sse_frame("content_block_delta", {
+                    "index": index,
+                    "delta": {"type": "text_delta", "text": block.get("text") or ""},
+                }))
+            else:
+                frames.append(anthropic_sse_frame("content_block_start", {
+                    "index": index, "content_block": block,
+                }))
+            frames.append(anthropic_sse_frame("content_block_stop", {"index": index}))
+        frames.append(anthropic_sse_frame("message_delta", {
+            "delta": {"stop_reason": result.get("stop_reason") or "end_turn",
+                      "stop_sequence": None},
+            "usage": usage,
+        }))
+        frames.append(anthropic_sse_frame("message_stop", {}))
+        try:
+            for frame in frames:
+                self.wfile.write(frame)
+            self.wfile.flush()
+        except Exception:
+            pass
+        self.close_connection = True
+
+    def _route_gemini(self, path):
+        """Gemini generateContent / streamGenerateContent。"""
+        if not self._authorized():
+            return
+        payload = self._payload_or_error()
+        if payload is None:
+            return
+        model, action = _parse_gemini_path(path)
+        if not model:
+            return self._json(404, {"error": {"code": 404,
+                                            "message": "model not found",
+                                            "status": "NOT_FOUND"}})
+        meta = None
+        try:
+            import wb_webgateway
+            from wb_webgateway.protocols import gemini as gemini_proto
+
+            registry = wb_webgateway.current()
+            if registry is not None:
+                cfg = wb_webgateway._config(registry)
+                if cfg.get("enabled") and "gemini" in (cfg.get("inject_protocols") or []):
+                    payload, meta = gemini_proto.prepare(payload, registry, cfg, {
+                        "key_entry": getattr(self, "key_entry", None),
+                        "key_id": self._key_id()})
+            chat_body = gemini_proto.to_chat(payload, model)
+        except Exception as exc:
+            return self._json(500, {"error": {"code": 500, "message": str(exc),
+                                            "status": "INTERNAL"}})
+        chat_resp = self._call_self_chat(chat_body)
+        if isinstance(chat_resp, dict) and chat_resp.get("error"):
+            return self._json(502, chat_resp)
+        out = gemini_proto.from_chat(chat_resp, meta, model)
+        if action == "streamGenerateContent" or "alt=sse" in (self.path or ""):
+            data = gemini_proto.sse_payload(out).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            try:
+                self.wfile.write(data)
+            except Exception:
+                pass
+            return
+        return self._json(200, out)
+
+    def _call_self_chat(self, body):
+        """把转换后的 chat 请求交给本进程的 /v1/chat/completions。"""
+        port = self.server.server_address[1]
+        url = "http://127.0.0.1:%d/v1/chat/completions" % port
+        headers = {"Content-Type": "application/json"}
+        auth = self.headers.get("Authorization")
+        if auth:
+            headers["Authorization"] = auth
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                return json.loads(resp.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as exc:
+            try:
+                return json.loads(exc.read().decode("utf-8", "replace"))
+            except Exception:
+                return {"error": {"code": exc.code, "message": "chat call failed"}}
+        except Exception as exc:
+            return {"error": {"code": 502, "message": str(exc)}}
+
+    def _route_web_gateway(self, path):
+        """能力端点：/v1/tools/search | fetch | search_fetch。
+
+        鉴权走既有 ``_authorized``，key 的身分随 ctx 传给 registry，
+        账号白名单与按 key 限流才有依据。
+        """
+        if not self._authorized():
+            return
+        payload = self._payload_or_error()
+        if payload is None:
+            return
+        try:
+            import wb_webgateway
+        except Exception as exc:
+            return self._error(503, "web gateway unavailable (%s)" % type(exc).__name__)
+        ctx = {
+            "key_entry": getattr(self, "key_entry", None),
+            "key_id": self._key_id(),
+        }
+        status, body = wb_webgateway.handle(path, payload, ctx)
+        return self._json(status, body)
+
+    def _maybe_web_model(self, payload, is_messages_route):
+        """伪模型：model 是 wb-search / wb-fetch / wb-search-fetch 时短路。
+
+        返回 True 表示已经把响应写出去（成功或失败），调用方直接 return。
+        这三个 id 不进别名表，也不占 chat 的并发槽：它们不发往上游模型。
+        """
+        if not isinstance(payload, dict):
+            return False
+        model = str(payload.get("model") or "").strip()
+        if not model:
+            return False
+        try:
+            import wb_webgateway
+
+            if not wb_webgateway.is_web_model(model):
+                return False
+        except Exception:
+            return False
+        protocol = "messages" if is_messages_route else "chat"
+        ctx = {"key_entry": getattr(self, "key_entry", None), "key_id": self._key_id()}
+        status, body = wb_webgateway.handle_model(model, payload, protocol, ctx)
+        if status != 200:
+            message = (body.get("error") or {}).get("message") or "web model failed"
+            if protocol == "messages":
+                self._anthropic_error(status, message, "invalid_request_error")
+            else:
+                self._json(status, body)
+            return True
+        if protocol == "messages" or payload.get("stream") is not True:
+            self._json(status, body)
+            return True
+        self._send_web_stream(model, body)
+        return True
+
+    def _send_web_stream(self, model, body):
+        """伪模型的流式收尾：结果已经在手里，一次发完再关连接。"""
+        try:
+            import wb_webgateway.models as web_models
+        except Exception:
+            return self._json(200, body)
+        data = web_models.sse_lines(body, model).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        if cors_origin_allowed(self.path):
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+            self.wfile.flush()
+        except Exception:
+            pass
+        self.close_connection = True
+
     def _route_console_toggle(self):
         # 按钮的 `{}` body 已在 do_POST 分发前排空（见 BODYLESS_PANEL_POSTS）。
         # 兼容旧面板：新面板直接 window.open，不再请求这里。
@@ -23085,6 +23473,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             pass
         data = [model_entry(mid, meta, req_realm) for mid, meta in entries]
+        try:
+            # web 网关开启时，把三个伪模型（wb-search / wb-fetch /
+            # wb-search-fetch）一起列出来，客户端才能在下拉框里选到。
+            import wb_webgateway
+
+            if wb_settings.web_gateway(ACCOUNTS_DIR).get("enabled"):
+                data.extend(wb_webgateway.web_model_entries())
+        except Exception:
+            pass
         try:
             # 别名开关关着时 effective_model_aliases() 返回空表：别名既不进
             # 清单也不改写请求，原模型名照旧可用。
@@ -25254,6 +25651,12 @@ class Handler(BaseHTTPRequestHandler):
                                    "invalid_request_error")
             wb_settings.set_local_web_tools(ACCOUNTS_DIR, raw)
             reply["local_web_tools"] = raw
+        if "web_gateway" in payload:
+            try:
+                reply["web_gateway"] = wb_settings.set_web_gateway(
+                    ACCOUNTS_DIR, payload.get("web_gateway"))
+            except ValueError as exc:
+                return self._error(400, str(exc), "invalid_request_error")
         if "remaining_priority_enabled" in payload:
             raw = payload.get("remaining_priority_enabled")
             if not isinstance(raw, bool):
@@ -27891,6 +28294,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_messages(self, payload):
         """Serve an Anthropic Messages request through the chat pipeline."""
+        web_meta = None
+        try:
+            import wb_webgateway
+
+            payload, web_meta = wb_webgateway.prepare_anthropic(
+                payload, {"key_entry": getattr(self, "key_entry", None),
+                          "key_id": self._key_id()})
+        except Exception as exc:
+            log("web gateway: anthropic prepare failed: %s" % exc,
+                level="WARN", tag="webgateway")
         try:
             chat_req = messages_to_chat(payload)
         except ValueError as exc:
@@ -27931,6 +28344,10 @@ class Handler(BaseHTTPRequestHandler):
             if req_realm == "codearts":
                 return self._handle_codearts_messages(
                     chat_req, session_key, model, want_stream, fp, t_start)
+            if web_meta and web_meta.get("multi"):
+                return self._messages_web_loop(
+                    chat_req, session_key, req_realm, explicit_realm, model,
+                    want_stream, fp, t_start, web_meta)
             upstream, account, effort = open_upstream_with_fallback(
                 chat_req, session_key=session_key, target_realm=req_realm,
                 allow_realm_fallback=not explicit_realm,
@@ -28000,18 +28417,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self._messages_stream_response(
                     upstream, model, fp, account, t_start,
                     base_body=chat_req, session_key=session_key,
-                    realm=req_realm, effort=effort)
+                    realm=req_realm, effort=effort, web_meta=web_meta)
             return self._messages_nonstream_response(
                 upstream, model, fp, account, t_start,
                 base_body=chat_req, session_key=session_key,
-                realm=req_realm, effort=effort)
+                realm=req_realm, effort=effort, web_meta=web_meta)
 
     def _messages_nonstream_response(self, upstream, model, fp, account, t_start,
                                      base_body=None, session_key=None, realm=None,
-                                     effort=None):
+                                     effort=None, web_meta=None):
         try:
             chat_obj = aggregate_stream(upstream, model, None)
             result = chat_to_messages(chat_obj)
+            if web_meta:
+                try:
+                    import wb_webgateway.protocols.anthropic as web_anthropic
+
+                    result = web_anthropic.decorate_message(result, web_meta)
+                except Exception:
+                    pass
             wall = int((time.time() - t_start) * 1000)
             record_upstream_usage(upstream, model, chat_obj.get("usage"), stream=False, elapsed_ms=wall,
                          fp=fp, account=account.uid, realm=realm,
@@ -28031,7 +28455,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _messages_stream_response(self, upstream, model, fp, account, t_start,
                                   base_body=None, session_key=None, realm=None,
-                                  session_meta=None, effort=None):
+                                  session_meta=None, effort=None, web_meta=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -28045,7 +28469,8 @@ class Handler(BaseHTTPRequestHandler):
             lambda data: (self.wfile.write(data), self.wfile.flush()))
         try:
             with heartbeat:
-                for frame in stream_messages_events(upstream, model, holder):
+                for frame in stream_messages_events(upstream, model, holder,
+                                                    web_meta=web_meta):
                     if first_ms is None:
                         first_ms = int((time.time() - t_start) * 1000)
                     heartbeat.write(frame)
@@ -28148,6 +28573,14 @@ class Handler(BaseHTTPRequestHandler):
             # 根本不发 body，排空会一直等一个永远不会到的载荷。
             self._handle_expect_continue()
             self._discard_body()
+        if path.startswith("/v1beta/models/"):
+            # Gemini 原生入口：转成 Chat 请求后走本进程的 /v1/chat/completions，
+            # 响应再转回 GenerateContentResponse（含 groundingMetadata）。
+            return self._route_gemini(path)
+        if path.startswith("/v1/tools/"):
+            # web 网关的三个能力端点（搜索 / 抓取 / 搜索+抓取）。鉴权与
+            # 请求体处理都复用既有管线，不认识该路径时内部回 404。
+            return self._route_web_gateway(path)
         if path == "/console/toggle":
             # Panel-only management write: 收起/唤出本进程自己的控制台窗口，
             # 与设置、定价那几个写入同一个门。按钮带 `{}` body，
@@ -28333,6 +28766,9 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._payload_or_error(allow_list=(path == "/accounts/import"))
         if payload is None:
             return
+        if not is_account_route and not is_media_route:
+            if self._maybe_web_model(payload, is_messages_route):
+                return
         if is_account_route:
             return self._handle_accounts(path, payload)
         if is_media_route:
