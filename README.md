@@ -262,6 +262,10 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 ## 七、版本更新记录 (Changelog)
 
 本版更新与完整历史版本请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
+### Unreleased
+
+- **修复「工具结果早于工具调用」导致的 11148**：Codex / ccswitch 经 `/v1/responses` 重放历史时，个别会话把 `function_call_output` 排在 `function_call` 之前；转成 chat 消息后就是 `[tool, assistant(tool_calls)]`，上游按顺序配对，读成「调用没有结果、结果没有调用」，整轮返回 400 / code 11148，会话作废。新的 `reorder_early_tool_results()` 在出站前把这类结果移到对应 call 之后；`merge_adjacent_tool_calls()` 同时放宽为允许带文本的相邻批次合并（文本与 reasoning 一并保留）（只改顺序，id 唯一所以无损），接在 `merge_adjacent_tool_calls` 之后、`repack_tool_result_blocks` 之前；孤儿调用 / 孤儿结果仍由原逻辑清理。 / Fix 11148 when a tool result arrives before its call: some Codex histories replayed through `/v1/responses` list `function_call_output` before `function_call`, leaving the chat body as `[tool, assistant(tool_calls)]`; the upstream pairs by order and rejects the turn with 400 / code 11148. A new `reorder_early_tool_results()` moves such results behind their call before the body leaves (order only, ids are unique so nothing is lost), between `merge_adjacent_tool_calls` and `repack_tool_result_blocks`; orphan calls and results keep the existing cleanup.
+
 ### v2.1.3
 
 - **运营活动与成长任务补全**：新增星巴克协作、记者节福利活动，接入任务读取、`viewed`、事件上报、`claim` 与 `claimed_at` 回读；技能分享改为创建真实分享渠道并确认进度后领奖；模板任务按服务端场景逐组上报四事件。手机 App 对话任务只提示、不伪造。
