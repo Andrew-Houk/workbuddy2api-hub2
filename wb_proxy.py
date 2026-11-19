@@ -19829,7 +19829,9 @@ def follow_up_with_tool_results(internal_calls, holder, model, session_key, t_st
 
     for tc in tool_calls:
         nm = tc["function"]["name"]
-        result = _execute_web_tool(nm, tc["function"]["arguments"])
+        result = _execute_web_tool(nm, tc["function"]["arguments"], {
+            "allowed_accounts": allowed_accounts,
+        })
         found = wb_webtools.sources_from_result(result)
         if found:
             holder.setdefault("web_sources", []).extend(found)
@@ -20899,7 +20901,7 @@ def _web_blocks_from_call(call, result):
     return [use, result_block]
 
 
-def _execute_web_tool(name, arguments):
+def _execute_web_tool(name, arguments, ctx=None):
     """优先走 web 网关的 registry；未接管时回退到 wb_webtools 的本地执行器。
 
     识别与接管条件都在 wb_webgateway.execute_tool 里判断（含旧开关
@@ -20908,7 +20910,7 @@ def _execute_web_tool(name, arguments):
     try:
         import wb_webgateway
 
-        handled = wb_webgateway.execute_tool(name, arguments)
+        handled = wb_webgateway.execute_tool(name, arguments, ctx)
         if handled is not None:
             return handled
     except Exception as exc:
@@ -22932,7 +22934,11 @@ class Handler(BaseHTTPRequestHandler):
                     "function": {"name": call.get("name"),
                                  "arguments": call.get("arguments") or "{}"},
                 })
-                outcome = _execute_web_tool(call.get("name"), call.get("arguments"))
+                outcome = _execute_web_tool(
+                    call.get("name"), call.get("arguments"),
+                    {"key_entry": getattr(self, "key_entry", None),
+                     "key_id": self._key_id(),
+                     "allowed_accounts": self._key_allowed_accounts()})
                 tool_messages.append({"role": "tool", "tool_call_id": call_id,
                                       "name": call.get("name"), "content": outcome})
                 blocks.extend(_web_blocks_from_call(call, outcome))

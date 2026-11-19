@@ -154,9 +154,15 @@ check("fetch body uses markdown and the char cap",
 
 check("whitelist intersection", wbp._allowed_uids(
     {"allowed_uids": ["u1", "u2"]}, {"key_entry": {"accounts": ["u2", "u3"]}}) == {"u2"})
+check("explicit key allow-list is enforced", wbp._allowed_uids(
+    {}, {"allowed_accounts": {"u2", "u3"}}) == {"u2", "u3"})
+check("unrestricted key leaves the pool open", wbp._allowed_uids(
+    {}, {"allowed_accounts": None}) is None)
 check("no restriction on either side means None", wbp._allowed_uids({}, {}) is None)
 check("freshness falls back to the provider setting",
       wbp._freshness("year", "d3") == "d3", wbp._freshness("year", "d3"))
+check("WorkBuddy redirects are not followed", wbp._NoRedirect().redirect_request(
+    None, None, 302, "Found", {}, "https://evil.example/") is None)
 
 
 class PickSpyPool(object):

@@ -50,6 +50,31 @@ class _AccountRejected(Exception):
         self.retryable = bool(retryable)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Do not replay account credentials to a redirect target.
+
+    ``urllib`` copies ``Authorization`` and custom headers onto a redirected
+    request. The WorkBuddy provider sends an account access token, so a 3xx
+    must be treated as a failed upstream response instead of being followed.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect())
+
+
+def _opener_for_proxy(proxy):
+    proxy = str(proxy or "").strip()
+    if not proxy:
+        return _OPENER
+    return urllib.request.build_opener(
+        _NoRedirect(),
+        urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+    )
+
+
 def _rotate_budget():
     try:
         n = int(os.environ.get("WB_WEB_ROTATE_MAX", "1") or 1)
@@ -64,7 +89,10 @@ def _allowed_uids(entry, ctx):
     configured_set = set(configured) if configured else None
     key_entry = (ctx or {}).get("key_entry")
     key_set = None
-    if key_entry:
+    if "allowed_accounts" in (ctx or {}):
+        supplied = ctx.get("allowed_accounts")
+        key_set = set(supplied) if supplied is not None else None
+    elif key_entry:
         try:
             import wb_settings
 
@@ -249,8 +277,8 @@ class WorkbuddyProvider(Provider):
         request = urllib.request.Request(url, data=data, headers=_headers(account),
                                          method="POST")
         try:
-            with wb_accounts.urlopen(request, timeout=timeout_ms / 1000.0,
-                                     proxy=getattr(account, "proxy", "") or "") as resp:
+            opener = _opener_for_proxy(getattr(account, "proxy", "") or "")
+            with opener.open(request, timeout=timeout_ms / 1000.0) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as exc:
             status = int(getattr(exc, "code", 0) or 0)
