@@ -20,7 +20,7 @@
 This project is for protocol research and personal use only. Prefer the official client, do not use your primary account, and do not resell or share access.
 
 <p align="center">
-  <a href="https://github.com/ardeyouxipianyi/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v2.1.3-2496ED?style=flat-square" alt="Version 2.1.3"></a>
+  <a href="https://github.com/niyouqianma/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v2.1.4-2496ED?style=flat-square" alt="Version 2.1.4"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -82,10 +82,10 @@ This project is for protocol research and personal use only. Prefer the official
 
 ```bash
 # 官方源（直连 GitHub 环境）：
-curl -fsSL https://raw.githubusercontent.com/ardeyouxipianyi/workbuddy2api-hub/main/quick-deploy.sh | bash
+curl -fsSL https://raw.githubusercontent.com/niyouqianma/workbuddy2api-hub/main/quick-deploy.sh | bash
 
 # 国内网络 / NAS 加速：
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/ardeyouxipianyi/workbuddy2api-hub/main/quick-deploy.sh | sudo bash
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/niyouqianma/workbuddy2api-hub/main/quick-deploy.sh | sudo bash
 ```
 
 > 公网部署或配合反向代理：在管道前指定 `WB_DEPLOY_MODE=public bash`，并搭配 Nginx / Caddy / Cloudflare Tunnel 配置 TLS。
@@ -95,7 +95,7 @@ curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/ardeyouxipiany
 ```yaml
 services:
   wb-proxy:
-    image: ghcr.io/ardeyouxipianyi/workbuddy2api-hub:latest
+    image: ghcr.io/niyouqianma/workbuddy2api-hub:latest
     container_name: wb-proxy
     restart: unless-stopped
     ports:
@@ -265,7 +265,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 ## 七、版本更新记录 (Changelog)
 
 本版更新与完整历史版本请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
-### Unreleased
+### v2.1.4
 
 - **网页工具安全修正**：Responses 与 Anthropic 多轮网页工具都会继承 API Key 的账号白名单；WorkBuddy `/agenttool` 不再跟随重定向，避免账号鉴权头被发送到其他主机。
 - **网页工具网关（搜索 / 抓取 / 搜索+抓取）**：新增三个能力端点 `/v1/tools/search`、`/v1/tools/fetch`、`/v1/tools/search_fetch`，以及三个伪模型 `wb-search` / `wb-fetch` / `wb-search-fetch`——它们出现在 `/v1/models`，用 API key 经 `/v1/chat/completions` 或 `/v1/messages` 独立调用，不消耗上游模型额度。搜索后端可在「WorkBuddy 官方 `/agenttool`」与「本地多引擎链」之间多选，抓取后端同理；元宝走账号池，支持全池轮换、按区域限定与指定账号。协议层：Anthropic Messages 支持 `web_search_20250305` 的原生多轮执行（模型自己决定搜什么，网关执行后回填 `server_tool_use` / `web_search_tool_result` 与 `usage.server_tool_use.web_search_requests`）；OpenAI Responses 的执行器改接同一套 provider，事件序列不变；Gemini 的 `googleSearch` 走预检索并回填 `groundingMetadata`。默认关闭（`web_gateway.enabled`），关闭时行为与 v2.1.3 完全一致；`local_web_tools=true` 的既有部署仍走原来的 Responses 代跑路径。 / **Web tool gateway (search / fetch / search+fetch)**: three capability endpoints (`/v1/tools/search`, `/v1/tools/fetch`, `/v1/tools/search_fetch`) plus three pseudo models (`wb-search`, `wb-fetch`, `wb-search-fetch`) that are listed in `/v1/models` and called independently with an API key through `/v1/chat/completions` or `/v1/messages` without spending upstream model credits. Search backends are multi-select between WorkBuddy's own `/agenttool` API and the local multi-engine chain; fetch backends work the same way. The WorkBuddy backend runs on the account pool with whole-pool rotation, realm selection or a specific account list. Protocol layer: Anthropic Messages gets native multi-round `web_search_20250305` (the model decides what to search, the gateway executes and fills in `server_tool_use` / `web_search_tool_result` and `usage.server_tool_use.web_search_requests`); OpenAI Responses routes its executor through the same providers with an unchanged event sequence; Gemini's `googleSearch` runs a pre-search and fills `groundingMetadata`. Off by default (`web_gateway.enabled`); when off the behaviour is exactly v2.1.3, and deployments with `local_web_tools=true` keep the original Responses path.
@@ -325,7 +325,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 ## ⭐ Star 趋势
 
 <p align="center">
-  <a href="https://star-history.com/#ardeyouxipianyi/workbuddy2api-hub&Date">
-    <img src="https://api.star-history.com/svg?repos=ardeyouxipianyi/workbuddy2api-hub&type=Date" alt="Star History Chart" width="760">
+  <a href="https://star-history.com/#niyouqianma/workbuddy2api-hub&Date">
+    <img src="https://api.star-history.com/svg?repos=niyouqianma/workbuddy2api-hub&type=Date" alt="Star History Chart" width="760">
   </a>
 </p>

@@ -1,3 +1,13 @@
+## v2.1.4
+
+- **网页工具网关**：新增 `/v1/tools/search`、`/v1/tools/fetch`、`/v1/tools/search_fetch` 与伪模型 `wb-search` / `wb-fetch` / `wb-search-fetch`。搜索和抓取后端支持 WorkBuddy 官方 `/agenttool` 与本地多引擎链；Anthropic Messages、OpenAI Responses 和 Gemini `googleSearch` 已接入同一套 provider，默认关闭，不消耗上游模型额度。
+- **网页工具安全修正**：Responses 与 Anthropic 多轮网页工具继承 API Key 的账号白名单；WorkBuddy `/agenttool` 禁止跟随重定向，避免账号鉴权头被发送到其他主机。
+- **Responses 工具结果顺序修复**：重放历史中 `function_call_output` 早于 `function_call` 时，出站前移动到对应调用之后，避免上游返回 400 / code 11148；带文本的相邻 `tool_calls` 批次也可安全合并。
+- **重启后积分刷新**：积分刷新器首轮只等待 20 秒，随后恢复配置间隔，避免重启后长时间显示旧快照。
+- **外部账号接口与管理页**：新增独立外部 API Key、`account:auth` / `account:read` scope、浏览器授权链接、脱敏账号列表、调用记录分页与动态请求示例；密钥文件权限为 `0600`。
+- **仓库迁移**：Release、Docker、一键部署与 Star 趋势链接切换到新仓库 `niyouqianma/workbuddy2api-hub`，历史贡献与上游项目署名保留。
+- 全量测试：**310 个套件：232 个 Python + 78 个 JS，`310 passed, 0 failed, 0 skipped`**。
+
 ## v2.1.3
 
 - **CodeArts 并发占满改为有界排队**（#886 / #887）：单账号并发槽被占满时最多等待 `busy_wait_seconds`（默认 10 秒，范围 0–120），名额释放通过 `Condition` 立即唤醒；超时返回可重试的 429 `rate_limit_error` 并带 `reset_at`，不再误报 502「没有可用的账号」。真正空池 / 全停用 / 全冷却仍提示添加账号；多账号仍优先选空闲账号。
