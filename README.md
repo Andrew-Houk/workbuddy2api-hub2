@@ -20,7 +20,7 @@
 This project is for protocol research and personal use only. Prefer the official client, do not use your primary account, and do not resell or share access.
 
 <p align="center">
-  <a href="https://github.com/niyouqianma/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v2.1.6-2496ED?style=flat-square" alt="Version 2.1.6"></a>
+  <a href="https://github.com/niyouqianma/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v2.1.7-2496ED?style=flat-square" alt="Version 2.1.7"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -267,7 +267,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 
 本版更新与完整历史版本请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 
-### v2.1.6
+### v2.1.7
 
 - **用量看板提速**。今日指标优先显示，累计与历史在后台补齐。实时列表只更新变化的行，浏览历史页时保留当前内容。
 - **用量日志自动轮转**。活动日志默认达到 8 MiB 后封存，后台压缩、索引并生成汇总。备份时请包含整个用量目录。
