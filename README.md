@@ -20,7 +20,7 @@
 This project is for protocol research and personal use only. Prefer the official client, do not use your primary account, and do not resell or share access.
 
 <p align="center">
-  <a href="https://github.com/niyouqianma/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v2.1.4-2496ED?style=flat-square" alt="Version 2.1.4"></a>
+  <a href="https://github.com/niyouqianma/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v2.1.5-2496ED?style=flat-square" alt="Version 2.1.5"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -265,6 +265,11 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 ## 七、版本更新记录 (Changelog)
 
 本版更新与完整历史版本请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
+### v2.1.5
+
+- **更新源迁移**：面板的每日更新检查、手动检查与安装链接默认指向 `niyouqianma/workbuddy2api-hub`，不再请求已停用的旧仓库；`WB_UPDATE_REPO` 仍可覆盖为自建 fork。
+- **面板仓库入口迁移**：顶部 GitHub 图标与侧栏「WorkBuddy 仓库」统一指向新仓库。
+
 ### v2.1.4
 
 - **网页工具安全修正**：Responses 与 Anthropic 多轮网页工具都会继承 API Key 的账号白名单；WorkBuddy `/agenttool` 不再跟随重定向，避免账号鉴权头被发送到其他主机。

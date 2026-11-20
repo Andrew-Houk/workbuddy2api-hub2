@@ -1,3 +1,9 @@
+## v2.1.5
+
+- **更新源迁移**：`wb_updates.py` 的默认仓库从 `ardeyouxipianyi/workbuddy2api-hub` 切换到 `niyouqianma/workbuddy2api-hub`。面板每日更新检查、手动检查与安装链接不再访问已停用的旧仓库；自建 fork 仍可通过 `WB_UPDATE_REPO=owner/repo` 覆盖。
+- **面板入口迁移**：顶部 GitHub 图标与侧栏「WorkBuddy 仓库」链接同步切换到新仓库。
+- **回归测试**：新增默认仓库断言，更新检查与设置页 UI 测试改用新仓库 URL。
+
 ## v2.1.4
 
 - **网页工具网关**：新增 `/v1/tools/search`、`/v1/tools/fetch`、`/v1/tools/search_fetch` 与伪模型 `wb-search` / `wb-fetch` / `wb-search-fetch`。搜索和抓取后端支持 WorkBuddy 官方 `/agenttool` 与本地多引擎链；Anthropic Messages、OpenAI Responses 和 Gemini `googleSearch` 已接入同一套 provider，默认关闭，不消耗上游模型额度。
